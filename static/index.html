@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinguaDoc — Translate documents into polished reports</title>
+  <meta name="description" content="LinguaDoc translates Word, Excel, and text files into professionally formatted Word or PowerPoint reports in 19+ languages. Upload, pick a language, download — no formatting or copy-paste required." />
+  <meta name="theme-color" content="#5b21b6" />
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+  <link rel="apple-touch-icon" href="/logo.svg" />
+  <style>
+    :root { --accent: #5b21b6; --bg: #f5f3ff; --border: #d6cdf5; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif; margin: 0;
+      background: var(--bg); color: #1f2937; display: flex;
+      min-height: 100vh; align-items: center; justify-content: center;
+    }
+    .card {
+      background: #fff; padding: 2.5rem; border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(91,33,182,.12); width: 100%;
+      max-width: 540px; margin: 1.5rem;
+    }
+    .brand { display: flex; align-items: center; gap: .9rem; }
+    .brand .logo { width: 52px; height: 52px; flex: 0 0 auto;
+      filter: drop-shadow(0 4px 10px rgba(91,33,182,.25)); }
+    .brand h1 { margin: 0; font-size: 1.55rem; letter-spacing: -.02em;
+      background: linear-gradient(90deg,#5b21b6,#8b5cf6);
+      -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .brand .tag { margin: .1rem 0 0; color: #6b7280; font-size: .82rem; font-weight: 500; }
+    p.sub { margin: 1.1rem 0 1rem; color: #4b5563; font-size: .92rem; line-height: 1.5; }
+    .features { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
+    .features span {
+      font-size: .76rem; font-weight: 600; color: var(--accent);
+      background: #f1ecfd; border: 1px solid var(--border);
+      padding: .28rem .6rem; border-radius: 999px;
+    }
+    h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
+    label { display: block; font-weight: 600; margin: 1rem 0 .4rem; font-size: .9rem; }
+    input[type=file], select {
+      width: 100%; padding: .65rem; border: 1px solid var(--border);
+      border-radius: 8px; font-size: .95rem; background: #fff;
+    }
+    .checks { display: flex; gap: 1.5rem; margin-top: .4rem; }
+    .checks label { display: flex; align-items: center; gap: .45rem; margin: 0; font-weight: 500; }
+    .actions { display: flex; gap: .75rem; margin-top: 1.75rem; }
+    button {
+      flex: 1; padding: .85rem; border: none;
+      border-radius: 8px; background: var(--accent); color: #fff;
+      font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity .2s;
+    }
+    button.secondary {
+      flex: 0 0 auto; background: #fff; color: var(--accent);
+      border: 1px solid var(--border);
+    }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .status { margin-top: 1rem; font-size: .9rem; text-align: center; min-height: 1.2em; }
+    .status.err { color: #dc2626; }
+    .status.ok { color: #059669; }
+    .hint { font-size: .78rem; color: #9ca3af; margin-top: .3rem; }
+    .hidden { display: none; }
+    .opt { font-weight: 400; color: #9ca3af; font-size: .8rem; }
+    .tpl-fields {
+      margin-top: .75rem; padding: 1rem; border: 1px dashed var(--border);
+      border-radius: 10px; background: #faf9ff;
+    }
+    .tpl-fields label:first-child { margin-top: 0; }
+    .footer { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid #eee; }
+    .steps { display: flex; gap: .5rem; justify-content: space-between; }
+    .steps .step { flex: 1; text-align: center; font-size: .76rem; color: #6b7280; }
+    .steps .step b { display: block; color: var(--accent); font-size: 1.05rem; }
+    .privacy { margin: 1rem 0 0; font-size: .74rem; color: #9ca3af; text-align: center; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <img class="logo" src="/logo.svg" alt="LinguaDoc logo" width="52" height="52" />
+      <div>
+        <h1>LinguaDoc</h1>
+        <p class="tag">Multilingual document &amp; report studio</p>
+      </div>
+    </div>
+    <p class="sub">
+      Turn a Word, Excel, or text file into a <strong>professionally formatted Word or
+      PowerPoint report</strong> — fully translated into the language you choose. Upload,
+      pick a language, and download. No reformatting, no copy-paste.
+    </p>
+    <div class="features">
+      <span>🌐 19+ languages</span>
+      <span>📝 Word &amp; PowerPoint</span>
+      <span>🎨 Branded templates</span>
+      <span>⚡ Free — no API key</span>
+    </div>
+
+    <form id="form">
+      <label for="file">Source file</label>
+      <input type="file" id="file" name="file" accept=".txt,.docx,.xlsx,.xlsm" required />
+      <div class="hint">Supported: .docx, .xlsx, .txt</div>
+
+      <label for="lang">Translate into</label>
+      <select id="lang" name="target_lang" required></select>
+
+      <label>Output format</label>
+      <div class="checks">
+        <label><input type="checkbox" name="fmt" value="docx" checked /> Word (.docx)</label>
+        <label><input type="checkbox" name="fmt" value="pptx" /> PowerPoint (.pptx)</label>
+      </div>
+
+      <label>Design</label>
+      <div class="checks">
+        <label><input type="radio" name="tpl" value="standard" checked /> Standard professional</label>
+        <label><input type="radio" name="tpl" value="custom" /> Use my own template</label>
+      </div>
+
+      <div id="tplFields" class="tpl-fields hidden">
+        <label for="docxTpl">Word template (.docx) <span class="opt">— optional</span></label>
+        <input type="file" id="docxTpl" name="docx_template" accept=".docx" />
+        <label for="pptxTpl">PowerPoint template (.pptx/.potx) <span class="opt">— optional</span></label>
+        <input type="file" id="pptxTpl" name="pptx_template" accept=".pptx,.potx" />
+        <div class="hint">Your template's fonts, colours and layouts are reused. Leave blank to keep the standard design for that format.</div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="go">Translate &amp; download</button>
+        <button type="button" class="secondary" id="resetBtn">Reset</button>
+      </div>
+      <div class="status" id="status"></div>
+
+      <div class="footer">
+        <div class="steps">
+          <div class="step"><b>1</b>Upload your file</div>
+          <div class="step"><b>2</b>Pick language &amp; format</div>
+          <div class="step"><b>3</b>Download the report</div>
+        </div>
+        <p class="privacy">
+          Files are processed only to build your report and are not stored after the
+          download. Translation is powered by Google Translate.
+        </p>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const langSel = document.getElementById("lang");
+    const statusEl = document.getElementById("status");
+    const btn = document.getElementById("go");
+
+    // Populate language dropdown.
+    fetch("/api/languages").then(r => r.json()).then(langs => {
+      for (const [code, name] of Object.entries(langs)) {
+        const opt = document.createElement("option");
+        opt.value = code; opt.textContent = name;
+        if (code === "fr") opt.selected = true;
+        langSel.appendChild(opt);
+      }
+    });
+
+    function setStatus(msg, cls) {
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (cls ? " " + cls : "");
+    }
+
+    const tplFields = document.getElementById("tplFields");
+
+    // Show/hide the custom-template uploads based on the Design choice.
+    function syncTplFields() {
+      const custom = document.querySelector("input[name=tpl]:checked").value === "custom";
+      tplFields.classList.toggle("hidden", !custom);
+    }
+    document.querySelectorAll("input[name=tpl]").forEach(r =>
+      r.addEventListener("change", syncTplFields));
+
+    // Reset: clear the form back to its defaults.
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      document.getElementById("form").reset();
+      langSel.value = "fr";
+      syncTplFields();
+      setStatus("", "");
+    });
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById("file");
+      const fmts = [...document.querySelectorAll("input[name=fmt]:checked")].map(c => c.value);
+
+      if (!fileInput.files.length) return setStatus("Choose a file first.", "err");
+      if (!fmts.length) return setStatus("Pick at least one output format.", "err");
+
+      const fd = new FormData();
+      fd.append("file", fileInput.files[0]);
+      fd.append("target_lang", langSel.value);
+      fd.append("formats", fmts.join(","));
+
+      // Attach custom templates only when "Use my own template" is selected.
+      if (document.querySelector("input[name=tpl]:checked").value === "custom") {
+        const docxTpl = document.getElementById("docxTpl").files[0];
+        const pptxTpl = document.getElementById("pptxTpl").files[0];
+        if (docxTpl) fd.append("docx_template", docxTpl);
+        if (pptxTpl) fd.append("pptx_template", pptxTpl);
+      }
+
+      btn.disabled = true;
+      setStatus("Translating… this can take a moment.", "");
+
+      try {
+        const res = await fetch("/api/translate", { method: "POST", body: fd });
+        if (!res.ok) {
+          let detail = "Request failed.";
+          try { detail = (await res.json()).detail || detail; } catch {}
+          throw new Error(detail);
+        }
+        const blob = await res.blob();
+        const dispo = res.headers.get("Content-Disposition") || "";
+        const match = dispo.match(/filename="(.+?)"/);
+        const filename = match ? match[1] : "translated_report";
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
+        setStatus("Done! Your download should start automatically.", "ok");
+      } catch (err) {
+        setStatus(err.message, "err");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

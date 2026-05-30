@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="LinguaDoc logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#4c1d95"/>
+    </linearGradient>
+  </defs>
+  <!-- rounded badge -->
+  <rect width="64" height="64" rx="15" fill="url(#bg)"/>
+  <!-- document -->
+  <rect x="15" y="11" width="26" height="37" rx="3.5" fill="#ffffff"/>
+  <rect x="20" y="18" width="16" height="2.8" rx="1.4" fill="#c4b5fd"/>
+  <rect x="20" y="24" width="16" height="2.8" rx="1.4" fill="#c4b5fd"/>
+  <rect x="20" y="30" width="11" height="2.8" rx="1.4" fill="#ddd6fe"/>
+  <!-- globe badge (translate) -->
+  <circle cx="42" cy="42" r="12" fill="#8b5cf6" stroke="#ffffff" stroke-width="2.5"/>
+  <g stroke="#ffffff" stroke-width="1.6" fill="none" stroke-linecap="round">
+    <line x1="30.5" y1="42" x2="53.5" y2="42"/>
+    <ellipse cx="42" cy="42" rx="5" ry="11.6"/>
+  </g>
+</svg>
