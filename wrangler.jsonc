@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "report-translator",
+  "compatibility_date": "2026-05-30",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "static"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
