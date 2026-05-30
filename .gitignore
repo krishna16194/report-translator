@@ -16,6 +16,17 @@ env/
 !**/templates/*.docx
 !**/templates/*.pptx
 
+# Node / Cloudflare Wrangler
+node_modules/
+.wrangler/
+package-lock.json
+*.log
+
+# local test artifacts
+sample.txt
+result.zip
+headers.txt
+
 # OS / editor
 .DS_Store
 Thumbs.db

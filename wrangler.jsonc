@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "report-translator",
+  "main": "src/index.js",
+  "compatibility_date": "2025-05-23",
+
+  // Serve the existing frontend (static/) directly from the Worker. Requests
+  // that don't match a static file fall through to the Worker's fetch handler,
+  // which implements the /api/* routes.
+  "assets": {
+    "directory": "./static",
+    "binding": "ASSETS"
+  }
+}

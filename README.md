@@ -49,24 +49,54 @@ python -m uvicorn app.main:app --port 8000
 Then open <http://127.0.0.1:8000> in your browser, choose a file, pick a target
 language and output format, and click **Translate & download**.
 
-## Deploy (Render)
+## Two backends
 
-> ⚠️ This is a **FastAPI (Python) app** — it cannot run on Cloudflare
-> Workers/Pages, which only serve static files. Deploying just `static/` there
-> makes `/api/*` return **404** because the Python backend isn't running. Use a
-> Python-capable host. A `render.yaml` blueprint is included for [Render](https://render.com):
+This repo ships **two** implementations of the same UI:
 
-1. Push this repo to GitHub (already done: `krishna16194/report-translator`).
-2. In Render: **New + → Blueprint**, connect the repo, and **Apply**. Render
-   reads [`render.yaml`](render.yaml) and configures the build/start commands.
-   (Or **New + → Web Service** and set Build = `pip install -r requirements.txt`,
-   Start = `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.)
-3. Open the URL Render gives you (e.g. `https://report-translator.onrender.com`).
-   The frontend and `/api/*` are served from the **same origin**, so it just works.
+| | Local / full | Cloudflare (deployed) |
+|---|---|---|
+| Code | `app/` (Python, FastAPI) | `src/` (JavaScript, Worker) |
+| Translation | `deep-translator` | Google endpoint via `fetch` |
+| Input | `.docx`, `.xlsx`, `.txt` | `.docx`, `.txt` |
+| Output design | cover, tables, page numbers, custom templates | cover + headings + bullets (no tables/templates) |
+| Limits | none | 2 MB upload, free-tier CPU/subrequest caps |
 
-Any other Python host works too (Azure App Service, Railway, Fly.io) using the
-same start command. On the free Render tier the service sleeps when idle, so the
-first request after a pause can take ~30s to wake.
+The Cloudflare build is a **deliberately leaner** version that fits the free
+Workers tier (10 ms CPU, 50 subrequests/request). `.xlsx` uploads and custom
+templates aren't supported there — use the local Python app for those.
+
+## Deploy (Cloudflare Workers — free)
+
+The Worker serves the static frontend **and** the `/api/*` routes from one origin,
+so `/api/languages` returns `200` (no more 404). No paid plan, no Docker.
+
+```powershell
+cd doc-translator
+npm install                # installs wrangler + fflate
+npx wrangler login         # opens a browser to authenticate to Cloudflare
+npx wrangler deploy        # bundles src/ + static/ and deploys
+```
+
+Wrangler deploys to `report-translator.<your-subdomain>.workers.dev` — i.e. it
+**replaces the current static-only deployment** with the full app. Open that URL
+and the whole thing works.
+
+Local development of the Worker:
+
+```powershell
+npx wrangler dev           # http://127.0.0.1:8787
+```
+
+Worker files: [src/index.js](src/index.js) (router), [src/translate.js](src/translate.js),
+[src/parse.js](src/parse.js), [src/docx.js](src/docx.js), [src/pptx.js](src/pptx.js),
+[wrangler.jsonc](wrangler.jsonc) (static-assets binding). Run `node scripts/test-gen.mjs`
+to validate the document generators offline.
+
+### Alternative: full Python app on Render (free)
+
+To deploy the *full* version (Excel input, tables, custom templates) instead, use a
+Python host. A [`render.yaml`](render.yaml) blueprint is included: in Render, choose
+**New + → Blueprint**, connect this repo, and **Apply** (free tier; sleeps when idle).
 
 ## How it works
 
