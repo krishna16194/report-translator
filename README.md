@@ -49,6 +49,25 @@ python -m uvicorn app.main:app --port 8000
 Then open <http://127.0.0.1:8000> in your browser, choose a file, pick a target
 language and output format, and click **Translate & download**.
 
+## Deploy (Render)
+
+> ⚠️ This is a **FastAPI (Python) app** — it cannot run on Cloudflare
+> Workers/Pages, which only serve static files. Deploying just `static/` there
+> makes `/api/*` return **404** because the Python backend isn't running. Use a
+> Python-capable host. A `render.yaml` blueprint is included for [Render](https://render.com):
+
+1. Push this repo to GitHub (already done: `krishna16194/report-translator`).
+2. In Render: **New + → Blueprint**, connect the repo, and **Apply**. Render
+   reads [`render.yaml`](render.yaml) and configures the build/start commands.
+   (Or **New + → Web Service** and set Build = `pip install -r requirements.txt`,
+   Start = `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.)
+3. Open the URL Render gives you (e.g. `https://report-translator.onrender.com`).
+   The frontend and `/api/*` are served from the **same origin**, so it just works.
+
+Any other Python host works too (Azure App Service, Railway, Fly.io) using the
+same start command. On the free Render tier the service sleeps when idle, so the
+first request after a pause can take ~30s to wake.
+
 ## How it works
 
 ```
