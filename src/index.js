@@ -16,6 +16,10 @@ export default {
     if (url.pathname === "/api/languages") {
       return json(LANGUAGES);
     }
+    if (url.pathname === "/api/capabilities") {
+      // Lean Cloudflare build: no Excel, no custom templates, 2 MB cap.
+      return json({ xlsx: false, templates: false, maxBytes: MAX_UPLOAD_BYTES, build: "cloudflare" });
+    }
     if (url.pathname === "/api/translate") {
       if (request.method !== "POST") return json({ detail: "Use POST." }, 405);
       return handleTranslate(request).catch((err) =>

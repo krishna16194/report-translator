@@ -45,6 +45,12 @@ def languages() -> dict[str, str]:
     return LANGUAGES
 
 
+@app.get("/api/capabilities")
+def capabilities() -> dict:
+    # Full Python build: Excel input, custom templates, no upload cap.
+    return {"xlsx": True, "templates": True, "maxBytes": None, "build": "python"}
+
+
 @app.post("/api/translate")
 async def translate(
     file: UploadFile = File(...),

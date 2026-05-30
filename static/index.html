@@ -96,7 +96,7 @@
     <form id="form">
       <label for="file">Source file</label>
       <input type="file" id="file" name="file" accept=".txt,.docx,.xlsx,.xlsm" required />
-      <div class="hint">Supported: .docx, .xlsx, .txt</div>
+      <div class="hint" id="fileHint">Supported: .docx, .xlsx, .txt</div>
 
       <label for="lang">Translate into</label>
       <select id="lang" name="target_lang" required></select>
@@ -107,10 +107,12 @@
         <label><input type="checkbox" name="fmt" value="pptx" /> PowerPoint (.pptx)</label>
       </div>
 
-      <label>Design</label>
-      <div class="checks">
-        <label><input type="radio" name="tpl" value="standard" checked /> Standard professional</label>
-        <label><input type="radio" name="tpl" value="custom" /> Use my own template</label>
+      <div id="designSection">
+        <label>Design</label>
+        <div class="checks">
+          <label><input type="radio" name="tpl" value="standard" checked /> Standard professional</label>
+          <label><input type="radio" name="tpl" value="custom" /> Use my own template</label>
+        </div>
       </div>
 
       <div id="tplFields" class="tpl-fields hidden">
@@ -155,6 +157,32 @@
         langSel.appendChild(opt);
       }
     });
+
+    // Adapt the UI to the backend's capabilities. The lean Cloudflare build
+    // reports xlsx:false / templates:false; the full Python app reports true.
+    // If the endpoint is missing (older deploy), assume the full feature set.
+    fetch("/api/capabilities")
+      .then(r => (r.ok ? r.json() : { xlsx: true, templates: true }))
+      .catch(() => ({ xlsx: true, templates: true }))
+      .then(caps => {
+        const fileInput = document.getElementById("file");
+        const fileHint = document.getElementById("fileHint");
+        if (!caps.xlsx) {
+          fileInput.setAttribute("accept", ".txt,.docx");
+          fileHint.textContent = "Supported: .docx, .txt";
+        }
+        if (!caps.templates) {
+          // No custom templates on this backend: hide the option and force standard.
+          document.getElementById("designSection").classList.add("hidden");
+          const std = document.querySelector("input[name=tpl][value=standard]");
+          if (std) std.checked = true;
+          syncTplFields();
+        }
+        if (caps.maxBytes) {
+          const mb = Math.round(caps.maxBytes / (1024 * 1024));
+          fileHint.textContent += ` · max ${mb} MB`;
+        }
+      });
 
     function setStatus(msg, cls) {
       statusEl.textContent = msg;
