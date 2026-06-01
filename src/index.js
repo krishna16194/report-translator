@@ -3,11 +3,11 @@
 import { LANGUAGES } from "./languages.js";
 import { parse, UnsupportedFileError } from "./parse.js";
 import { translateMany } from "./translate.js";
-import { buildDocx } from "./docx.js";
-import { buildPptx } from "./pptx.js";
+import { buildDocx, buildDocxFromTemplate } from "./docx.js";
+import { buildPptx, buildPptxFromTemplate } from "./pptx.js";
 import { zipSync, strToU8 } from "fflate";
 
-const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB cap (free CPU/subrequest limits)
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB cap (free CPU/subrequest limits)
 
 export default {
   async fetch(request, env) {
@@ -17,8 +17,8 @@ export default {
       return json(LANGUAGES);
     }
     if (url.pathname === "/api/capabilities") {
-      // Lean Cloudflare build: no Excel, no custom templates, 2 MB cap.
-      return json({ xlsx: false, templates: false, maxBytes: MAX_UPLOAD_BYTES, build: "cloudflare" });
+      // Cloudflare build: Excel input + custom templates, with an upload cap.
+      return json({ xlsx: true, templates: true, maxBytes: MAX_UPLOAD_BYTES, build: "cloudflare" });
     }
     if (url.pathname === "/api/translate") {
       if (request.method !== "POST") return json({ detail: "Use POST." }, 405);
@@ -57,12 +57,24 @@ async function handleTranslate(request) {
   }
   if (!parsed.blocks.length) throw httpError(400, "No readable text found in the file.");
 
-  // Translate every text segment + the title.
-  const strings = [parsed.title, ...parsed.blocks.map((b) => b.text)];
+  // Collect every text segment (title, paragraphs/headings, and table cells).
+  const strings = [parsed.title];
+  for (const b of parsed.blocks) {
+    if (b.type === "table") {
+      for (const row of b.rows) for (const cell of row) strings.push(cell);
+    } else {
+      strings.push(b.text);
+    }
+  }
+
   const map = await translateMany(strings, targetLang);
   const tr = (s) => map.get(s) ?? s;
   const title = tr(parsed.title);
-  const blocks = parsed.blocks.map((b) => ({ ...b, text: tr(b.text) }));
+  const blocks = parsed.blocks.map((b) =>
+    b.type === "table"
+      ? { ...b, rows: b.rows.map((row) => row.map(tr)) }
+      : { ...b, text: tr(b.text) }
+  );
 
   const langName = LANGUAGES[targetLang];
   const dateStr = new Date().toLocaleDateString("en-US", {
@@ -72,11 +84,28 @@ async function handleTranslate(request) {
   });
   const base = parsed.title;
 
+  // Optional custom templates. If a template build fails (templates are varied),
+  // fall back to the standard design so the user still gets a report.
+  const docxTpl = await templateBytes(form.get("docx_template"));
+  const pptxTpl = await templateBytes(form.get("pptx_template"));
+
   const outputs = {};
-  if (formats.includes("docx"))
-    outputs[`${base}_${targetLang}.docx`] = buildDocx(title, blocks, langName, dateStr);
-  if (formats.includes("pptx"))
-    outputs[`${base}_${targetLang}.pptx`] = buildPptx(title, blocks, langName, dateStr);
+  if (formats.includes("docx")) {
+    outputs[`${base}_${targetLang}.docx`] = docxTpl
+      ? tryTemplate(
+          () => buildDocxFromTemplate(title, blocks, langName, dateStr, docxTpl),
+          () => buildDocx(title, blocks, langName, dateStr)
+        )
+      : buildDocx(title, blocks, langName, dateStr);
+  }
+  if (formats.includes("pptx")) {
+    outputs[`${base}_${targetLang}.pptx`] = pptxTpl
+      ? tryTemplate(
+          () => buildPptxFromTemplate(title, blocks, langName, dateStr, pptxTpl),
+          () => buildPptx(title, blocks, langName, dateStr)
+        )
+      : buildPptx(title, blocks, langName, dateStr);
+  }
 
   const names = Object.keys(outputs);
   if (names.length === 1) return fileResponse(names[0], outputs[names[0]]);
@@ -85,6 +114,21 @@ async function handleTranslate(request) {
   const zip = {};
   for (const [name, data] of Object.entries(outputs)) zip[name] = data;
   return fileResponse(`${base}_${targetLang}.zip`, zipSync(zip));
+}
+
+// Read an optional uploaded template into an ArrayBuffer, or null if absent.
+async function templateBytes(field) {
+  if (!field || typeof field === "string" || !field.size) return null;
+  return field.arrayBuffer();
+}
+
+// Build with the template; on any failure, fall back to the standard design.
+function tryTemplate(build, fallback) {
+  try {
+    return build();
+  } catch {
+    return fallback();
+  }
 }
 
 function json(obj, status = 200) {

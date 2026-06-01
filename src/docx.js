@@ -1,5 +1,5 @@
 // Build a clean, valid .docx from the content model (no external doc library).
-import { zipSync, strToU8 } from "fflate";
+import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
 import { esc } from "./xml.js";
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -52,6 +52,73 @@ function para(text, { style, jc, bold, sz, color, italic } = {}) {
 
 const PAGE_BREAK = `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
 
+// ---- tables ----------------------------------------------------------------
+const ACCENT_HEX = "5B21B6";
+const LIGHT_ROW_HEX = "F2EEFB";
+const TABLE_BORDERS =
+  "<w:tblBorders>" +
+  ["top", "left", "bottom", "right", "insideH", "insideV"]
+    .map((s) => `<w:${s} w:val="single" w:sz="4" w:space="0" w:color="D6CDF5"/>`)
+    .join("") +
+  "</w:tblBorders>";
+
+function shade(fill) {
+  return `<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>`;
+}
+
+// A styled <w:tbl>: accent header row (white bold) and banded body rows.
+function tableXml(rows) {
+  if (!rows || !rows.length) return "";
+  const cols = Math.max(...rows.map((r) => r.length));
+  const colW = Math.floor(9026 / cols);
+  const grid =
+    "<w:tblGrid>" +
+    Array.from({ length: cols }, () => `<w:gridCol w:w="${colW}"/>`).join("") +
+    "</w:tblGrid>";
+
+  const trs = rows
+    .map((row, ri) => {
+      const header = ri === 0;
+      const banded = !header && ri % 2 === 0;
+      const fill = header ? ACCENT_HEX : banded ? LIGHT_ROW_HEX : null;
+      const tcs = [];
+      for (let ci = 0; ci < cols; ci++) {
+        const text = ci < row.length ? row[ci] : "";
+        const rPr = ['<w:sz w:val="20"/>'];
+        if (header) rPr.push("<w:b/>", '<w:color w:val="FFFFFF"/>');
+        const cellP =
+          `<w:p><w:r><w:rPr>${rPr.join("")}</w:rPr>` +
+          `<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
+        const tcPr = `<w:tcPr>${fill ? shade(fill) : ""}</w:tcPr>`;
+        tcs.push(`<w:tc>${tcPr}${cellP}</w:tc>`);
+      }
+      return `<w:tr>${tcs.join("")}</w:tr>`;
+    })
+    .join("");
+
+  return (
+    `<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="9026"/><w:jc w:val="center"/>` +
+    `${TABLE_BORDERS}</w:tblPr>${grid}${trs}</w:tbl>`
+  );
+}
+
+// Render the content model (headings / paragraphs / tables) to body XML.
+function contentXml(blocks) {
+  const out = [];
+  for (const b of blocks) {
+    if (b.type === "heading") {
+      const lvl = Math.min(Math.max(b.level || 1, 1), 3);
+      out.push(para(b.text, { style: `Heading${lvl}` }));
+    } else if (b.type === "table") {
+      out.push(tableXml(b.rows));
+      out.push(para("")); // spacer after the table
+    } else {
+      out.push(para(b.text));
+    }
+  }
+  return out.join("");
+}
+
 export function buildDocx(title, blocks, languageName, dateStr) {
   const body = [];
 
@@ -62,15 +129,7 @@ export function buildDocx(title, blocks, languageName, dateStr) {
   body.push(para(`${languageName}   ·   ${dateStr}`, { jc: "center", sz: 22, color: "6B7280" }));
   body.push(PAGE_BREAK);
 
-  // Content.
-  for (const b of blocks) {
-    if (b.type === "heading") {
-      const lvl = Math.min(Math.max(b.level || 1, 1), 3);
-      body.push(para(b.text, { style: `Heading${lvl}` }));
-    } else {
-      body.push(para(b.text));
-    }
-  }
+  body.push(contentXml(blocks));
 
   const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -85,4 +144,42 @@ export function buildDocx(title, blocks, languageName, dateStr) {
     "word/_rels/document.xml.rels": strToU8(DOC_RELS),
   };
   return zipSync(zip);
+}
+
+// Reuse the caller's .docx template: keep its package (styles, theme, fonts,
+// any letterhead) and append the translated content before the body's final
+// sectPr. Our paragraphs reference the standard Title/Subtitle/HeadingN style
+// IDs; where a template lacks one, Word falls back to default formatting.
+export function buildDocxFromTemplate(title, blocks, languageName, dateStr, templateBytes) {
+  const files = unzipSync(new Uint8Array(templateBytes));
+  const docPart = files["word/document.xml"];
+  if (!docPart) throw new Error("Not a valid .docx template (missing document.xml).");
+  const xml = strFromU8(docPart);
+
+  const bodyOpen = xml.indexOf("<w:body");
+  const bodyClose = xml.lastIndexOf("</w:body>");
+  if (bodyOpen === -1 || bodyClose === -1) throw new Error("Template document.xml has no <w:body>.");
+  const innerStart = xml.indexOf(">", bodyOpen) + 1;
+  const inner = xml.slice(innerStart, bodyClose);
+
+  // The body-level <w:sectPr> is the last one; keep it after our content.
+  const sectIdx = inner.lastIndexOf("<w:sectPr");
+  let existing = inner;
+  let sectPr = "";
+  if (sectIdx !== -1) {
+    const sectEnd = inner.indexOf("</w:sectPr>", sectIdx);
+    if (sectEnd !== -1) {
+      sectPr = inner.slice(sectIdx, sectEnd + "</w:sectPr>".length);
+      existing = inner.slice(0, sectIdx);
+    }
+  }
+
+  const head =
+    para(title, { style: "Title" }) +
+    para(`Translated Report — ${languageName} · ${dateStr}`, { style: "Subtitle", italic: true });
+  const newInner = existing + head + contentXml(blocks) + sectPr;
+  const newXml = xml.slice(0, innerStart) + newInner + xml.slice(bodyClose);
+
+  files["word/document.xml"] = strToU8(newXml);
+  return zipSync(files);
 }
