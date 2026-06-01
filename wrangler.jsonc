@@ -10,5 +10,11 @@
   "assets": {
     "directory": "./static",
     "binding": "ASSETS"
+  },
+
+  // Workers AI: used to synthesize a structured report (headings, bullet
+  // points, key takeaways) from the uploaded content before translation.
+  "ai": {
+    "binding": "AI"
   }
 }

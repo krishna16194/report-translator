@@ -13,45 +13,47 @@ const NS =
   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
   'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
 
-// ---- packing: split paragraphs into slide-sized bullet groups -------------
-function packBullets(bullets) {
+// ---- packing: split items into slide-sized groups -------------------------
+// Each item is { text, bullet } — bullet items get a "•" glyph; plain
+// paragraphs (e.g. a summary) render without one.
+function packBullets(items) {
   const groups = [];
   let cur = [];
   let used = 0;
-  for (const t of bullets) {
-    const lines = Math.max(1, Math.ceil(t.length / 90));
+  for (const it of items) {
+    const lines = Math.max(1, Math.ceil(it.text.length / 90));
     if (cur.length && (used + lines > 13 || cur.length >= 7)) {
       groups.push(cur);
       cur = [];
       used = 0;
     }
-    cur.push(t);
+    cur.push(it);
     used += lines;
   }
   if (cur.length) groups.push(cur);
   return groups;
 }
 
-// Group blocks into typed slides: { kind: "content", title, bullets } or
-// { kind: "table", title, rows }. Paragraphs collect under their heading and
-// pack into slide-sized bullet groups; tables get their own slide.
+// Group blocks into typed slides: { kind: "content", title, items } or
+// { kind: "table", title, rows }. Paragraphs/bullets collect under their
+// heading and pack into slide-sized groups; tables get their own slide.
 function groupSlides(title, blocks) {
   const slides = [];
   let curTitle = title;
-  let bullets = [];
+  let items = [];
   let headingRendered = true; // the title slide covers the document title
   const flush = () => {
-    if (!bullets.length) return;
-    packBullets(bullets).forEach((g, i) =>
-      slides.push({ kind: "content", title: i ? `${curTitle} (cont.)` : curTitle, bullets: g })
+    if (!items.length) return;
+    packBullets(items).forEach((g, i) =>
+      slides.push({ kind: "content", title: i ? `${curTitle} (cont.)` : curTitle, items: g })
     );
-    bullets = [];
+    items = [];
     headingRendered = true;
   };
   for (const b of blocks) {
     if (b.type === "heading") {
       flush();
-      if (!headingRendered) slides.push({ kind: "content", title: curTitle, bullets: [] });
+      if (!headingRendered) slides.push({ kind: "content", title: curTitle, items: [] });
       curTitle = b.text;
       headingRendered = false;
     } else if (b.type === "table") {
@@ -59,11 +61,11 @@ function groupSlides(title, blocks) {
       slides.push({ kind: "table", title: curTitle, rows: b.rows });
       headingRendered = true;
     } else {
-      bullets.push(b.text);
+      items.push({ text: b.text, bullet: b.type === "bullet" });
     }
   }
   flush();
-  if (!headingRendered) slides.push({ kind: "content", title: curTitle, bullets: [] });
+  if (!headingRendered) slides.push({ kind: "content", title: curTitle, items: [] });
   return slides;
 }
 
@@ -126,7 +128,7 @@ function titleSlide(title, languageName, dateStr) {
   return slideDoc(bar(5, 0, 0, IN / 2, H, "5B21B6") + t + sub + meta);
 }
 
-function contentSlide(title, bullets) {
+function contentSlide(title, items) {
   const top = bar(2, 0, 0, W, 120000, "5B21B6");
   const head = textBox(3, "Heading", Math.round(IN * 0.6), 320000, W - Math.round(IN * 1.2), 900000, [
     aP(title, { sz: 2800, b: true, color: "2E1065", spc: 0 }),
@@ -138,21 +140,30 @@ function contentSlide(title, bullets) {
     1500000,
     W - Math.round(IN * 1.4),
     H - 1900000,
-    bullets.map((t) => aP("•  " + t, { sz: 1800, color: "1F2937" })).join("") || "<a:p/>"
+    items.map((it) => aP((it.bullet ? "•  " : "") + it.text, { sz: 1800, color: "1F2937" })).join("") ||
+      "<a:p/>"
   );
   return slideDoc(top + head + body);
 }
 
+const ROW_H = 320000; // EMU; PowerPoint grows a row if its text wraps taller
+const MAX_TABLE_ROWS = 12; // rows per slide (incl. header) before paginating
+
 // A self-contained table (explicit fills + borders, so it renders without a
-// referenced table style). Header row accent-filled; body rows banded.
+// referenced table style). Header row accent-filled; body rows banded. The
+// font shrinks as columns grow so wide tables still fit the frame width.
 function tableFrame(id, x, y, cx, rows) {
   if (!rows || !rows.length) return "";
   const cols = Math.max(...rows.map((r) => r.length));
   const colW = Math.floor(cx / cols);
   const grid =
     "<a:tblGrid>" +
-    Array.from({ length: cols }, () => `<a:gridCol w="${colW}"/>`).join("") +
+    Array.from({ length: cols }, (_, i) =>
+      `<a:gridCol w="${i === cols - 1 ? cx - colW * (cols - 1) : colW}"/>`
+    ).join("") +
     "</a:tblGrid>";
+
+  const sz = cols <= 4 ? 1100 : cols <= 8 ? 1000 : 900;
 
   const border = ["L", "R", "T", "B"]
     .map(
@@ -170,18 +181,18 @@ function tableFrame(id, x, y, cx, rows) {
       const tcs = [];
       for (let ci = 0; ci < cols; ci++) {
         const text = ci < row.length ? row[ci] : "";
-        const rPr = `<a:rPr lang="en-US" sz="1100"${header ? ' b="1"' : ""}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr>`;
+        const rPr = `<a:rPr lang="en-US" sz="${sz}"${header ? ' b="1"' : ""}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr>`;
         const p = `<a:p><a:r>${rPr}<a:t>${esc(text)}</a:t></a:r></a:p>`;
         const tcPr =
           `<a:tcPr marL="45720" marR="45720" marT="22860" marB="22860">` +
           `${border}<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill></a:tcPr>`;
         tcs.push(`<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>${p}</a:txBody>${tcPr}</a:tc>`);
       }
-      return `<a:tr h="370840">${tcs.join("")}</a:tr>`;
+      return `<a:tr h="${ROW_H}">${tcs.join("")}</a:tr>`;
     })
     .join("");
 
-  const cy = 370840 * rows.length;
+  const cy = ROW_H * rows.length;
   return (
     `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Table ${id}"/>` +
     `<p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>` +
@@ -190,6 +201,19 @@ function tableFrame(id, x, y, cx, rows) {
     `<a:tbl><a:tblPr firstRow="1" bandRow="1"/>${grid}${trs}</a:tbl>` +
     `</a:graphicData></a:graphic></p:graphicFrame>`
   );
+}
+
+// Split a table into slide-sized chunks, repeating the header row on each so a
+// long table never runs off the bottom of a slide.
+function paginateTable(rows) {
+  if (rows.length <= MAX_TABLE_ROWS) return [rows];
+  const [header, ...body] = rows;
+  const pages = [];
+  const perPage = MAX_TABLE_ROWS - 1; // leave room for the repeated header
+  for (let i = 0; i < body.length; i += perPage) {
+    pages.push([header, ...body.slice(i, i + perPage)]);
+  }
+  return pages;
 }
 
 function tableSlide(title, rows) {
@@ -218,7 +242,13 @@ const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships
 export function buildPptx(title, blocks, languageName, dateStr) {
   const slides = [titleSlide(title, languageName, dateStr)];
   for (const s of groupSlides(title, blocks)) {
-    slides.push(s.kind === "table" ? tableSlide(s.title, s.rows) : contentSlide(s.title, s.bullets));
+    if (s.kind === "table") {
+      paginateTable(s.rows).forEach((page, i) =>
+        slides.push(tableSlide(i ? `${s.title} (cont.)` : s.title, page))
+      );
+    } else {
+      slides.push(contentSlide(s.title, s.items));
+    }
   }
 
   const zip = {};
@@ -303,10 +333,12 @@ function tplTitleSlide(title, subtitle) {
   );
 }
 
-function tplContentSlide(title, bullets) {
+function tplContentSlide(title, items) {
+  // The template's body placeholder supplies its own bullet styling, so we just
+  // feed the text lines.
   return slideDoc(
     placeholder(2, "Title", '<p:ph type="title"/>', plainParas([title])) +
-      placeholder(3, "Content", '<p:ph idx="1"/>', plainParas(bullets))
+      placeholder(3, "Content", '<p:ph idx="1"/>', plainParas(items.map((it) => it.text)))
   );
 }
 
@@ -347,9 +379,11 @@ export function buildPptxFromTemplate(title, blocks, languageName, dateStr, temp
   const newSlides = [{ xml: tplTitleSlide(title, `Translated Report — ${languageName} · ${dateStr}`), layout: titleLayout }];
   for (const s of groupSlides(title, blocks)) {
     if (s.kind === "table") {
-      newSlides.push({ xml: tplTableSlide(s.title, s.rows, slideW), layout: contentLayout });
+      paginateTable(s.rows).forEach((page, i) =>
+        newSlides.push({ xml: tplTableSlide(i ? `${s.title} (cont.)` : s.title, page, slideW), layout: contentLayout })
+      );
     } else {
-      newSlides.push({ xml: tplContentSlide(s.title, s.bullets), layout: contentLayout });
+      newSlides.push({ xml: tplContentSlide(s.title, s.items), layout: contentLayout });
     }
   }
 

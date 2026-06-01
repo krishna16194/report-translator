@@ -30,9 +30,11 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </w:styles>`;
 
 // One <w:p>; text may contain \n which becomes <w:br/>.
-function para(text, { style, jc, bold, sz, color, italic } = {}) {
+function para(text, { style, jc, bold, sz, color, italic, bullet } = {}) {
   const pPr = [];
   if (style) pPr.push(`<w:pStyle w:val="${style}"/>`);
+  // A bullet item: hanging indent so wrapped lines align past the glyph.
+  if (bullet) pPr.push('<w:ind w:left="360" w:hanging="220"/>', '<w:spacing w:after="60"/>');
   if (jc) pPr.push(`<w:jc w:val="${jc}"/>`);
   const pPrXml = pPr.length ? `<w:pPr>${pPr.join("")}</w:pPr>` : "";
 
@@ -66,15 +68,27 @@ function shade(fill) {
   return `<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>`;
 }
 
-// A styled <w:tbl>: accent header row (white bold) and banded body rows.
+const TABLE_WIDTH = 9026; // page text width (A4, 1440twip margins) in dxa
+
+// A styled <w:tbl> that always fits the page: a *fixed* layout with explicit
+// column widths summing to the text width, so columns never push past the
+// margin and long cell text wraps instead. Header row accent-filled (white
+// bold); body rows banded. Font shrinks as the column count grows.
 function tableXml(rows) {
   if (!rows || !rows.length) return "";
   const cols = Math.max(...rows.map((r) => r.length));
-  const colW = Math.floor(9026 / cols);
+
+  // Equal columns; the last one absorbs the rounding remainder so the widths
+  // add up to exactly TABLE_WIDTH.
+  const colW = Math.floor(TABLE_WIDTH / cols);
+  const widths = Array.from({ length: cols }, (_, i) =>
+    i === cols - 1 ? TABLE_WIDTH - colW * (cols - 1) : colW
+  );
   const grid =
-    "<w:tblGrid>" +
-    Array.from({ length: cols }, () => `<w:gridCol w:w="${colW}"/>`).join("") +
-    "</w:tblGrid>";
+    "<w:tblGrid>" + widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("") + "</w:tblGrid>";
+
+  // 10pt for narrow tables, easing down to 8pt for wide ones.
+  const sz = cols <= 4 ? 20 : cols <= 8 ? 18 : 16;
 
   const trs = rows
     .map((row, ri) => {
@@ -84,21 +98,26 @@ function tableXml(rows) {
       const tcs = [];
       for (let ci = 0; ci < cols; ci++) {
         const text = ci < row.length ? row[ci] : "";
-        const rPr = ['<w:sz w:val="20"/>'];
+        const rPr = [`<w:sz w:val="${sz}"/>`];
         if (header) rPr.push("<w:b/>", '<w:color w:val="FFFFFF"/>');
         const cellP =
           `<w:p><w:r><w:rPr>${rPr.join("")}</w:rPr>` +
           `<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
-        const tcPr = `<w:tcPr>${fill ? shade(fill) : ""}</w:tcPr>`;
+        const tcPr =
+          `<w:tcPr><w:tcW w:w="${widths[ci]}" w:type="dxa"/>` +
+          `${fill ? shade(fill) : ""}</w:tcPr>`;
         tcs.push(`<w:tc>${tcPr}${cellP}</w:tc>`);
       }
-      return `<w:tr>${tcs.join("")}</w:tr>`;
+      return `<w:tr>${header ? "<w:trPr><w:tblHeader/></w:trPr>" : ""}${tcs.join("")}</w:tr>`;
     })
     .join("");
 
   return (
-    `<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="9026"/><w:jc w:val="center"/>` +
-    `${TABLE_BORDERS}</w:tblPr>${grid}${trs}</w:tbl>`
+    `<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="${TABLE_WIDTH}"/><w:jc w:val="center"/>` +
+    `${TABLE_BORDERS}<w:tblLayout w:type="fixed"/>` +
+    `<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="80" w:type="dxa"/>` +
+    `<w:bottom w:w="40" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar>` +
+    `</w:tblPr>${grid}${trs}</w:tbl>`
   );
 }
 
@@ -109,6 +128,8 @@ function contentXml(blocks) {
     if (b.type === "heading") {
       const lvl = Math.min(Math.max(b.level || 1, 1), 3);
       out.push(para(b.text, { style: `Heading${lvl}` }));
+    } else if (b.type === "bullet") {
+      out.push(para("•  " + b.text, { bullet: true }));
     } else if (b.type === "table") {
       out.push(tableXml(b.rows));
       out.push(para("")); // spacer after the table

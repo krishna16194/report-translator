@@ -5,6 +5,7 @@ import { parse, UnsupportedFileError } from "./parse.js";
 import { translateMany } from "./translate.js";
 import { buildDocx, buildDocxFromTemplate } from "./docx.js";
 import { buildPptx, buildPptxFromTemplate } from "./pptx.js";
+import { generateReport } from "./report.js";
 import { zipSync, strToU8 } from "fflate";
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB cap (free CPU/subrequest limits)
@@ -17,12 +18,18 @@ export default {
       return json(LANGUAGES);
     }
     if (url.pathname === "/api/capabilities") {
-      // Cloudflare build: Excel input + custom templates, with an upload cap.
-      return json({ xlsx: true, templates: true, maxBytes: MAX_UPLOAD_BYTES, build: "cloudflare" });
+      // Cloudflare build: Excel input, custom templates, AI report generation.
+      return json({
+        xlsx: true,
+        templates: true,
+        report: !!env.AI,
+        maxBytes: MAX_UPLOAD_BYTES,
+        build: "cloudflare",
+      });
     }
     if (url.pathname === "/api/translate") {
       if (request.method !== "POST") return json({ detail: "Use POST." }, 405);
-      return handleTranslate(request).catch((err) =>
+      return handleTranslate(request, env).catch((err) =>
         json({ detail: err.message || "Translation failed." }, err.status || 500)
       );
     }
@@ -31,7 +38,7 @@ export default {
   },
 };
 
-async function handleTranslate(request) {
+async function handleTranslate(request, env) {
   const form = await request.formData();
   const file = form.get("file");
   const targetLang = form.get("target_lang");
@@ -56,6 +63,18 @@ async function handleTranslate(request) {
     throw httpError(400, "Could not read the file.");
   }
   if (!parsed.blocks.length) throw httpError(400, "No readable text found in the file.");
+
+  // Report mode (default): synthesize a structured report (summary, themed
+  // section headings, bullet points, key takeaways) with Workers AI before
+  // translating. Falls back to the original content if AI is off or fails.
+  if (form.get("mode") !== "raw" && env && env.AI) {
+    try {
+      const report = await generateReport(env, parsed);
+      parsed = report;
+    } catch {
+      /* keep the original parsed content */
+    }
+  }
 
   // Collect every text segment (title, paragraphs/headings, and table cells).
   const strings = [parsed.title];

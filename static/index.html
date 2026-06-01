@@ -107,6 +107,14 @@
         <label><input type="checkbox" name="fmt" value="pptx" /> PowerPoint (.pptx)</label>
       </div>
 
+      <div id="reportSection">
+        <label>Content</label>
+        <div class="checks">
+          <label><input type="checkbox" id="reportMode" checked /> Generate a structured report (AI)</label>
+        </div>
+        <div class="hint">Synthesizes your file into a summary, themed headings, bullet points &amp; key takeaways. Uncheck to translate the original text as-is.</div>
+      </div>
+
       <div id="designSection">
         <label>Design</label>
         <div class="checks">
@@ -178,6 +186,11 @@
           if (std) std.checked = true;
           syncTplFields();
         }
+        if (!caps.report) {
+          // No AI on this backend: hide the report toggle and translate as-is.
+          document.getElementById("reportSection").classList.add("hidden");
+          document.getElementById("reportMode").checked = false;
+        }
         if (caps.maxBytes) {
           const mb = Math.round(caps.maxBytes / (1024 * 1024));
           fileHint.textContent += ` · max ${mb} MB`;
@@ -219,6 +232,7 @@
       fd.append("file", fileInput.files[0]);
       fd.append("target_lang", langSel.value);
       fd.append("formats", fmts.join(","));
+      fd.append("mode", document.getElementById("reportMode").checked ? "report" : "raw");
 
       // Attach custom templates only when "Use my own template" is selected.
       if (document.querySelector("input[name=tpl]:checked").value === "custom") {
@@ -229,7 +243,12 @@
       }
 
       btn.disabled = true;
-      setStatus("Translating… this can take a moment.", "");
+      setStatus(
+        document.getElementById("reportMode").checked
+          ? "Generating your report… this can take a moment."
+          : "Translating… this can take a moment.",
+        ""
+      );
 
       try {
         const res = await fetch("/api/translate", { method: "POST", body: fd });
