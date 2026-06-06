@@ -6,6 +6,7 @@ import { translateMany } from "./translate.js";
 import { buildDocx, buildDocxFromTemplate } from "./docx.js";
 import { buildPptx, buildPptxFromTemplate } from "./pptx.js";
 import { generateReport } from "./report.js";
+import { fillTemplate, decideWithWorkersAI } from "./fill.js";
 import { zipSync, strToU8 } from "fflate";
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB cap (free CPU/subrequest limits)
@@ -23,9 +24,16 @@ export default {
         xlsx: true,
         templates: true,
         report: !!env.AI,
+        fill: !!env.AI,
         maxBytes: MAX_UPLOAD_BYTES,
         build: "cloudflare",
       });
+    }
+    if (url.pathname === "/api/fill") {
+      if (request.method !== "POST") return json({ detail: "Use POST." }, 405);
+      return handleFill(request, env).catch((err) =>
+        json({ detail: err.message || "Fill failed." }, err.status || 500)
+      );
     }
     if (url.pathname === "/api/translate") {
       if (request.method !== "POST") return json({ detail: "Use POST." }, 405);
@@ -133,6 +141,43 @@ async function handleTranslate(request, env) {
   const zip = {};
   for (const [name, data] of Object.entries(outputs)) zip[name] = data;
   return fileResponse(`${base}_${targetLang}.zip`, zipSync(zip));
+}
+
+// Fill an existing .docx template (with checkboxes + labeled blanks) from an
+// analyzed input file, using Workers AI to decide values. Inputs (multipart):
+//   file     — the source document (.docx/.xlsx/.txt) to read from
+//   template — the .docx form to fill (checkboxes are toggled in place)
+async function handleFill(request, env) {
+  if (!env || !env.AI) throw httpError(503, "Workers AI is not enabled for this Worker.");
+  const form = await request.formData();
+  const file = form.get("file");
+  const template = form.get("template");
+
+  if (!file || typeof file === "string") throw httpError(400, "No input file uploaded.");
+  if (!template || typeof template === "string") throw httpError(400, "No .docx template uploaded.");
+  if (!/\.docx$/i.test(template.name || "")) throw httpError(400, "Template must be a .docx file.");
+  if (file.size > MAX_UPLOAD_BYTES || template.size > MAX_UPLOAD_BYTES)
+    throw httpError(400, "File too large for the free build.");
+
+  let parsed;
+  try {
+    parsed = parse(await file.arrayBuffer(), file.name || "document");
+  } catch (e) {
+    if (e instanceof UnsupportedFileError) throw httpError(400, e.message);
+    throw httpError(400, "Could not read the input file.");
+  }
+  if (!parsed.blocks.length) throw httpError(400, "No readable text found in the input file.");
+
+  const tplBytes = await template.arrayBuffer();
+  let filled;
+  try {
+    filled = await fillTemplate(tplBytes, parsed, decideWithWorkersAI(env));
+  } catch (e) {
+    throw httpError(400, e.message || "Could not fill the template.");
+  }
+
+  const base = (template.name || "report").replace(/\.docx$/i, "");
+  return fileResponse(`${base}_filled.docx`, filled);
 }
 
 // Read an optional uploaded template into an ArrayBuffer, or null if absent.

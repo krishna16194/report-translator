@@ -98,6 +98,22 @@
       <input type="file" id="file" name="file" accept=".txt,.docx,.xlsx,.xlsm" required />
       <div class="hint" id="fileHint">Supported: .docx, .xlsx, .txt</div>
 
+      <div id="taskSection">
+        <label>What do you want to do?</label>
+        <div class="checks">
+          <label><input type="radio" name="task" value="translate" checked /> Translate into a report</label>
+          <label><input type="radio" name="task" value="fill" /> Fill a form template (AI)</label>
+        </div>
+      </div>
+
+      <div id="fillSection" class="hidden">
+        <label for="fillTpl">Form template to fill (.docx)</label>
+        <input type="file" id="fillTpl" name="template" accept=".docx" />
+        <div class="hint">Reads your source file and ticks the template's checkboxes &amp; fills
+          labeled blanks, keeping its formatting. The source file stays the input above.</div>
+      </div>
+
+      <div id="translateSection">
       <label for="lang">Translate into</label>
       <select id="lang" name="target_lang" required></select>
 
@@ -130,6 +146,7 @@
         <input type="file" id="pptxTpl" name="pptx_template" accept=".pptx,.potx" />
         <div class="hint">Your template's fonts, colours and layouts are reused. Leave blank to keep the standard design for that format.</div>
       </div>
+      </div><!-- /translateSection -->
 
       <div class="actions">
         <button type="submit" id="go">Translate &amp; download</button>
@@ -191,6 +208,13 @@
           document.getElementById("reportSection").classList.add("hidden");
           document.getElementById("reportMode").checked = false;
         }
+        if (!caps.fill) {
+          // No template-fill on this backend: hide the task picker (translate only).
+          document.getElementById("taskSection").classList.add("hidden");
+          const t = document.querySelector("input[name=task][value=translate]");
+          if (t) t.checked = true;
+          syncTask();
+        }
         if (caps.maxBytes) {
           const mb = Math.round(caps.maxBytes / (1024 * 1024));
           fileHint.textContent += ` · max ${mb} MB`;
@@ -212,20 +236,77 @@
     document.querySelectorAll("input[name=tpl]").forEach(r =>
       r.addEventListener("change", syncTplFields));
 
+    const fillSection = document.getElementById("fillSection");
+    const translateSection = document.getElementById("translateSection");
+
+    // Toggle between "translate to report" and "fill a form template".
+    function currentTask() {
+      const sel = document.querySelector("input[name=task]:checked");
+      return sel ? sel.value : "translate";
+    }
+    function syncTask() {
+      const fill = currentTask() === "fill";
+      fillSection.classList.toggle("hidden", !fill);
+      translateSection.classList.toggle("hidden", fill);
+      btn.textContent = fill ? "Fill template & download" : "Translate & download";
+    }
+    document.querySelectorAll("input[name=task]").forEach(r =>
+      r.addEventListener("change", syncTask));
+
     // Reset: clear the form back to its defaults.
     document.getElementById("resetBtn").addEventListener("click", () => {
       document.getElementById("form").reset();
       langSel.value = "fr";
       syncTplFields();
+      syncTask();
       setStatus("", "");
     });
+
+    // Stream a fetch Response to the browser as a download.
+    async function downloadResponse(res, fallbackName) {
+      if (!res.ok) {
+        let detail = "Request failed.";
+        try { detail = (await res.json()).detail || detail; } catch {}
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const dispo = res.headers.get("Content-Disposition") || "";
+      const match = dispo.match(/filename="(.+?)"/);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = match ? match[1] : fallbackName; a.click();
+      URL.revokeObjectURL(url);
+    }
 
     document.getElementById("form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fileInput = document.getElementById("file");
-      const fmts = [...document.querySelectorAll("input[name=fmt]:checked")].map(c => c.value);
 
-      if (!fileInput.files.length) return setStatus("Choose a file first.", "err");
+      if (!fileInput.files.length) return setStatus("Choose a source file first.", "err");
+
+      // --- Fill-a-template mode ---
+      if (currentTask() === "fill") {
+        const tpl = document.getElementById("fillTpl").files[0];
+        if (!tpl) return setStatus("Upload the .docx template to fill.", "err");
+        const fd = new FormData();
+        fd.append("file", fileInput.files[0]);
+        fd.append("template", tpl);
+        btn.disabled = true;
+        setStatus("Reading your file and filling the template… this can take a moment.", "");
+        try {
+          const res = await fetch("/api/fill", { method: "POST", body: fd });
+          await downloadResponse(res, "report_filled.docx");
+          setStatus("Done! Your filled template should start downloading.", "ok");
+        } catch (err) {
+          setStatus(err.message, "err");
+        } finally {
+          btn.disabled = false;
+        }
+        return;
+      }
+
+      // --- Translate-to-report mode ---
+      const fmts = [...document.querySelectorAll("input[name=fmt]:checked")].map(c => c.value);
       if (!fmts.length) return setStatus("Pick at least one output format.", "err");
 
       const fd = new FormData();
@@ -252,20 +333,7 @@
 
       try {
         const res = await fetch("/api/translate", { method: "POST", body: fd });
-        if (!res.ok) {
-          let detail = "Request failed.";
-          try { detail = (await res.json()).detail || detail; } catch {}
-          throw new Error(detail);
-        }
-        const blob = await res.blob();
-        const dispo = res.headers.get("Content-Disposition") || "";
-        const match = dispo.match(/filename="(.+?)"/);
-        const filename = match ? match[1] : "translated_report";
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = filename; a.click();
-        URL.revokeObjectURL(url);
+        await downloadResponse(res, "translated_report");
         setStatus("Done! Your download should start automatically.", "ok");
       } catch (err) {
         setStatus(err.message, "err");

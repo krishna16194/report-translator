@@ -98,6 +98,67 @@ To deploy the *full* version (Excel input, tables, custom templates) instead, us
 Python host. A [`render.yaml`](render.yaml) blueprint is included: in Render, choose
 **New + → Blueprint**, connect this repo, and **Apply** (free tier; sleeps when idle).
 
+## Fill an existing form template (checkboxes) — Cloudflare
+
+Beyond translating, the Worker can **fill an existing `.docx` form** from an analyzed
+input file: it reads your source document, then ticks the template's checkboxes and
+fills its labeled blanks, **keeping the template's formatting**. In the UI choose
+*"Fill a form template (AI)"*, upload the source file and the `.docx` form, and download.
+
+How it works ([src/fill.js](src/fill.js)):
+
+1. **Extract a schema** from the template's `document.xml` — legacy Word form-field
+   checkboxes (`<w:checkBox>`) are grouped by their table-row question (e.g. one row of
+   *Ja / Nein / NZ*), and `Label:` paragraphs become fillable text blanks. No template
+   editing required; checkboxes are matched by their unique field name.
+2. **Decide values with Workers AI** (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`): the
+   model is given the input text + the schema and returns, per question, the option to
+   tick (or *abstain* — it prefers a blank over a wrong tick, since the marks are
+   judgements) and values for the text blanks.
+3. **Apply in place**: each chosen checkbox's `<w:default>` is flipped to `1` (plus
+   `<w:checked/>`), label values are appended as runs, and the `.docx` is repackaged.
+
+API: `POST /api/fill` (multipart: `file` = source, `template` = `.docx` to fill).
+Requires the `AI` binding (already declared in [wrangler.jsonc](wrangler.jsonc)). Validate
+the extractor/toggler offline against a real template with `node scripts/test-fill.mjs`.
+
+> Note: this fills templates **as-is** by anchoring on table/label text, so it is
+> tuned to forms shaped like the DISPACT *Monitoringbericht*. For arbitrary templates,
+> the more robust path is to re-author them with named placeholders.
+
+## Monitoring-report generator (separate tool)
+
+`scripts/monitoring_report.py` is an independent utility (not part of the
+translator). It maps a **monitoring working sheet** (Excel) onto the empty
+**DISPACT Monitoringbericht** `.docx` template and writes a filled report,
+keeping the template's formatting.
+
+```powershell
+python scripts/monitoring_report.py INPUT.xlsx TEMPLATE.docx OUTPUT.docx
+```
+
+It is generic — it locates Excel columns by header text and report tables by
+their heading, so it is not tied to any one file. From the Excel it derives:
+
+| Report target | Source in the Excel |
+|---|---|
+| Header → *Besuchsdatum* | the visit date in the sheet title / tab name |
+| *Patientenstatus* (gescreent / eingeschlossen / randomisiert) | counts of patient rows / rows with an IC date / rows with a Rando-Nr. |
+| *Patienteneinschluss* screening list | screening numbers of the patients reviewed (SDV) this visit |
+| *eCRF-/SDV* table | screening number + visit range (parsed from the patient "Bemerkungen" column) |
+| Section comment boxes | findings from the *Inhalt / Bemerkungen / aktuelle Status* block, **routed by topic keywords** (`ROUTING_RULES`) into Sicherheit, eCRF, ISF, Zentrum, … |
+| *Generelle Kommentare* | any finding that matches no rule |
+
+Fields no monitoring sheet contains — center name/number, visit number,
+attendee names, the contracted "geplant" count, and the Ja/Nein/NZ marks
+(a judgement, not data) — are left as the template's blanks for a human to
+complete. The keyword routing (`ROUTING_RULES`) and column aliases
+(`LEFT_ALIASES` / `RIGHT_ALIASES`) are the two tables to tune for new
+vocabularies. One heuristic to be aware of: when a finding row has an empty
+*Inhalt*, the previous topic is carried forward (right for SDV sub-items, but
+it can mislabel the cosmetic `Inhalt:` prefix on an unrelated note — the
+routing itself still uses the full text).
+
 ## How it works
 
 ```
